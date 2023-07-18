@@ -1,68 +1,76 @@
 use rand::Rng;
-use std::collections::VecDeque;
 use std::thread;
 use std::time::Duration;
+use EventStateDrivenMachine::event::Event;
+use EventStateDrivenMachine::event_queue::EventQueue;
+use EventStateDrivenMachine::state::{InvincibleState, State};
 
-#[derive(Debug)]
-enum State {
-    On,
-    Off,
-}
-
-#[derive(Debug)]
-enum Event {
-    PushedPowerButton,
-    PushedVolumeUpButton,
-    PushedVolumeDownButton,
-}
-
-
-struct TV {
+struct Player {
     current_state: State,
-    current_volume: u8,
+    current_invinsible_state: InvincibleState,
     event_queue: EventQueue,
+    game_over: bool,
 }
 
-impl TV {
+impl Player {
     pub fn new() -> Self {
-        let current_state = State::Off;
+        let current_state = State::Normal;
+        let current_invinsible_state = InvincibleState::NonStarred;
         let event_queue = EventQueue::new();
-        let current_volume = 10;
         Self {
             current_state,
-            current_volume,
+            current_invinsible_state,
             event_queue,
+            game_over: false,
         }
     }
 
-    pub fn pushed_power_button (&mut self) {
-        self.event_queue.enqueue(Event::PushedPowerButton);
+    pub fn attacked(&mut self) {
+        self.event_queue.enqueue(Event::AttackedByEnemy);
     }
 
-    pub fn pushed_volume_up_button (&mut self) {
-        self.event_queue.enqueue(Event::PushedVolumeUpButton)
+    pub fn get_mashed(&mut self) {
+        self.event_queue.enqueue(Event::GetMash)
     }
 
-    pub fn pushed_volume_down_button (&mut self) {
-        self.event_queue.enqueue(Event::PushedVolumeDownButton)
+    pub fn ger_flower(&mut self) {
+        self.event_queue.enqueue(Event::GetFlower)
+    }
+
+    pub fn ger_star(&mut self) {
+        self.event_queue.enqueue(Event::GetStar)
+    }
+
+    pub fn time_up(&mut self) {
+        self.event_queue.enqueue(Event::TimePassed)
     }
 
     pub fn handle_event(&mut self, event: Event) {
-        match &self.current_state {
-            &State::On => match event {
-                Event::PushedPowerButton => {
-                    self.current_state = State::Off;
-                },
-                Event::PushedVolumeUpButton => {
-                    self.current_volume += 1;
-                },
-                Event::PushedVolumeDownButton => {
-                    self.current_volume -= 1;
+        match &self.current_invinsible_state {
+            &InvincibleState::Starred => match event {
+                Event::TimePassed => {
+                    self.current_invinsible_state = InvincibleState::NonStarred;
                 }
+                Event::GetFlower => {
+                    self.current_state = State::Fire;
+                }
+                Event::GetMash => match &self.current_state {
+                    &State::Normal => self.current_state = State::Super,
+                    _ => (),
+                },
+                _ => (),
             },
-            &State::Off => match event {
-                Event::PushedPowerButton => {
-                    self.current_state = State::On;
+            &InvincibleState::NonStarred => match event {
+                Event::GetStar => self.current_invinsible_state = InvincibleState::Starred,
+                Event::GetFlower => self.current_state = State::Fire,
+                Event::GetMash => match &self.current_state {
+                    &State::Normal => self.current_state = State::Super,
+                    _ => (),
+                },
+                Event::AttackedByEnemy => match &self.current_state {
+                    &State::Fire => self.current_state = State::Super,
+                    &State::Super => self.current_state = State::Normal,
+                    &State::Normal => self.game_over = true,
                 },
                 _ => (),
             },
@@ -70,46 +78,34 @@ impl TV {
     }
 }
 
-
-struct EventQueue(VecDeque<Event>);
-
-impl EventQueue {
-    pub fn new() -> Self {
-        let d = VecDeque::new();
-        EventQueue(d)
-    }
-
-    pub fn enqueue (&mut self, event: Event) {
-        self.0.push_back(event);
-    }
-
-    pub fn dequeue (&mut self) -> Option<Event> { 
-        self.0.pop_front()
-    }
-}
-
-fn push_random_button (tv: &mut TV) {
+fn occur_random_event(player: &mut Player) {
     let mut r = rand::thread_rng();
-    match r.gen_range(0..4) {
-        1 => tv.pushed_power_button(),
-        2 => tv.pushed_volume_up_button(),
-        3 => tv.pushed_volume_down_button(),
+    match r.gen_range(0..6) {
+        1 => player.attacked(),
+        2 => player.get_mashed(),
+        3 => player.ger_flower(),
+        4 => player.ger_star(),
+        5 => player.time_up(),
         _ => (),
     }
 }
 
 fn main() {
-    let mut tv = TV::new();
-    tv.pushed_power_button();
+    let mut mario = Player::new();
+    println!("Game Start");
     loop {
-        push_random_button(&mut tv);
-        if let Some(event) = tv.event_queue.dequeue() {
-            println! (
-                " tv info: {{ now_state = {:?}, volume = {}, input_event : {:?} }}",
-                tv.current_state, tv.current_volume, event
+        occur_random_event(&mut mario);
+        if let Some(event) = mario.event_queue.dequeue() {
+            println!(
+                "mario info: {{ now_state = {:?}, invinsible = {:?}, input_event : {:?} }}",
+                mario.current_state, mario.current_invinsible_state, event
             );
 
-            tv.handle_event(event);
+            mario.handle_event(event);
+        }
+        if mario.game_over {
+            println!("Game Over");
+            break;
         }
         thread::sleep(Duration::from_secs(1));
     }
